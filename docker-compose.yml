@@ -1,0 +1,27 @@
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [db]
+    networks: [internal, swag]
+    expose: ["8000"]
+    read_only: true
+    tmpfs: /tmp
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: prospekto
+      POSTGRES_USER: prospekto
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    volumes: [prospekto_pg:/var/lib/postgresql/data]
+    networks: [internal]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U prospekto -d prospekto"], interval: 10s, timeout: 5s, retries: 5}
+networks:
+  internal:
+    internal: true
+  swag:
+    external: true
+    name: ${SWAG_NETWORK:-swag_default}
+volumes: {prospekto_pg: {}}
