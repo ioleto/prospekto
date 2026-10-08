@@ -1,33 +1,26 @@
-# BLOCKED: the current application runtime supports SQLite only.
-# Do not deploy this PostgreSQL stack until the adapter and PostgreSQL integration tests exist.
-# Kept as a non-default reference only; it is not a supported production deployment.
 services:
-  # Disabled reference; remove this profile only after PostgreSQL adapter validation.
-  web:
-    profiles: ["blocked-postgresql"]
-    build: .
-    restart: unless-stopped
-    env_file: .env
-    depends_on: [db]
-    networks: [internal, swag]
-    expose: ["8000"]
-    read_only: true
-    tmpfs: /tmp
   db:
-    profiles: ["blocked-postgresql"]
     image: postgres:16-alpine
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: prospekto
-      POSTGRES_USER: prospekto
+      POSTGRES_DB: ${POSTGRES_DB:-prospekto}
+      POSTGRES_USER: ${POSTGRES_USER:-prospekto}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
     volumes: [prospekto_pg:/var/lib/postgresql/data]
-    networks: [internal]
-    healthcheck: {test: ["CMD-SHELL", "pg_isready -U prospekto -d prospekto"], interval: 10s, timeout: 5s, retries: 5}
-networks:
-  internal:
-    internal: true
-  swag:
-    external: true
-    name: ${SWAG_NETWORK:-swag_default}
-volumes: {prospekto_pg: {}}
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prospekto}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-prospekto}
+      SESSION_SECRET: ${SESSION_SECRET:?set in .env}
+      SMTP_ENCRYPTION_KEY: ${SMTP_ENCRYPTION_KEY:?set in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?set an Argon2 hash in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    depends_on: {db: {condition: service_healthy}}
+    ports: ['127.0.0.1:${PROSPEKTO_PORT:-8000}:8000']
+    command: sh -c 'python -m app.migrate && uvicorn app.main:app --host 0.0.0.0 --port 8000'
+volumes: {prospekto_pg:}
