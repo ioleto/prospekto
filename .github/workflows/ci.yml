@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   test:
+    name: Python tests
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -28,9 +29,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://prospekto:prospekto@localhost:5432/prospekto_test
       SESSION_SECRET: ci-session-secret
-      SMTP_ENCRYPTION_KEY: 9Y9s8qT7uV3wX2yZ4aB6cD8eF0gH1jK3lM5nP7rS9tU=
       ADMIN_USERNAME: admin
-      ADMIN_PASSWORD_HASH: $argon2id$v=19$m=65536,t=3,p=4$JHhyaXNhbHQ$invalid
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Check out repository
@@ -48,6 +47,7 @@ jobs:
         run: pytest -q
 
   docker:
+    name: Build Docker image
     runs-on: ubuntu-latest
     needs: test
     permissions:
