@@ -21,5 +21,12 @@ services:
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?set an Argon2 hash in .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
     depends_on: {db: {condition: service_healthy}}
+    networks:
+      - default
+      - swag
     command: sh -c 'python -m app.migrate && uvicorn app.main:app --host 0.0.0.0 --port 8000'
-volumes: {prospekto_pg: {}}
+volumes: {prospekto_pg:}
+networks:
+  swag:
+    external: true
+    name: ${SWAG_NETWORK:?set in .env}
