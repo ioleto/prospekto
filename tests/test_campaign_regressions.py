@@ -13,13 +13,14 @@ ROOT = Path(__file__).parents[1]
 class CampaignRegressionTests(unittest.TestCase):
     def test_mutating_campaign_and_association_routes_require_authentication(self):
         client = TestClient(main.app)
-        for path in (
-            "/campaigns",
-            "/campaigns/example/edit",
-            "/campaigns/example/status",
-            "/prospects/example/campaign",
-        ):
-            response = client.post(path, follow_redirects=False)
+        requests = (
+            ("/campaigns", {"name": "Example"}),
+            ("/campaigns/example/edit", {"name": "Example", "segment_type": "b2b"}),
+            ("/campaigns/example/status", {"status": "active"}),
+            ("/prospects/example/campaign", {"campaign_id": ""}),
+        )
+        for path, data in requests:
+            response = client.post(path, data=data, follow_redirects=False)
             self.assertEqual(response.status_code, 401, path)
 
     def test_campaign_validation_rejects_bad_segment_and_status(self):
