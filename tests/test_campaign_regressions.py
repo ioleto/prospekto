@@ -1,8 +1,10 @@
 import ast
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from psycopg.types.json import Jsonb
 
 from app import main
 
@@ -11,6 +13,23 @@ ROOT = Path(__file__).parents[1]
 
 
 class CampaignRegressionTests(unittest.TestCase):
+    class _RecordingConnection:
+        def __init__(self):
+            self.calls = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.calls.append((query, params))
+            return self
+
+        def fetchall(self):
+            return []
+
     def test_mutating_campaign_and_association_routes_require_authentication(self):
         client = TestClient(main.app)
         requests = (
@@ -66,6 +85,62 @@ class CampaignRegressionTests(unittest.TestCase):
             self.assertIn(column, migration)
         self.assertIn("REFERENCES smtp_profiles(id)", migration)
         self.assertIn("idx_prospects_campaign_id", migration)
+
+    def test_prospects_query_explicitly_types_nullable_campaign_filter(self):
+        source = (ROOT / "app" / "main.py").read_text()
+        self.assertIn("(%s::text IS NULL OR p.campaign_id=%s)", source)
+
+    def test_campaign_write_queries_wrap_jsonb_parameters(self):
+        fake_conn = self._RecordingConnection()
+        with (
+            patch.object(main, "conn", return_value=fake_conn),
+            patch.object(main, "guard"),
+            patch.object(main, "require_csrf"),
+            patch.object(main.secrets, "token_hex", return_value="campaign-id"),
+        ):
+            main.create_campaign(
+                request=object(),
+                name="Campagne",
+                segment_type="b2b",
+                inclusion_sector="",
+                exclusion_sector="",
+                inclusion_type="",
+                exclusion_type="",
+                inclusion_size="",
+                exclusion_size="",
+                inclusion_geography="",
+                exclusion_geography="",
+                inclusion_language="",
+                exclusion_language="",
+                smtp_profile_id="",
+                csrf_token="csrf",
+            )
+            main.edit_campaign(
+                campaign_id="campaign-id",
+                request=object(),
+                name="Campagne",
+                segment_type="b2b",
+                inclusion_sector="",
+                exclusion_sector="",
+                inclusion_type="",
+                exclusion_type="",
+                inclusion_size="",
+                exclusion_size="",
+                inclusion_geography="",
+                exclusion_geography="",
+                inclusion_language="",
+                exclusion_language="",
+                smtp_profile_id="",
+                csrf_token="csrf",
+            )
+
+        insert_params = fake_conn.calls[0][1]
+        self.assertIsInstance(insert_params[3], Jsonb)
+        self.assertIsInstance(insert_params[4], Jsonb)
+
+        update_params = fake_conn.calls[1][1]
+        self.assertIsInstance(update_params[2], Jsonb)
+        self.assertIsInstance(update_params[3], Jsonb)
 
 
 if __name__ == "__main__":

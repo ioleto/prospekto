@@ -9,6 +9,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from cryptography.fernet import Fernet
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 app = FastAPI(title="Prospekto", version="0.4.0")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", ""), same_site="lax", https_only=os.getenv("COOKIE_SECURE", "false").lower() == "true", max_age=3600)
@@ -88,7 +89,7 @@ def campaigns(request:Request):
 @app.post("/campaigns")
 def create_campaign(request:Request,name:str=Form(),segment_type:str=Form("b2b"),inclusion_sector:str=Form(""),exclusion_sector:str=Form(""),inclusion_type:str=Form(""),exclusion_type:str=Form(""),inclusion_size:str=Form(""),exclusion_size:str=Form(""),inclusion_geography:str=Form(""),exclusion_geography:str=Form(""),inclusion_language:str=Form(""),exclusion_language:str=Form(""),smtp_profile_id:str=Form(""),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token); form=locals(); inclusion,exclusion=campaign_payload(form); validate_campaign(name,segment_type,"draft",[],[]); cid=secrets.token_hex(8)
-    with conn() as c: c.execute("INSERT INTO campaigns (id,name,status,segment_type,inclusion_criteria,exclusion_criteria,smtp_profile_id,created_at) VALUES (%s,%s,'draft',%s,%s,%s,%s,%s)",(cid,name.strip(),segment_type,inclusion,exclusion,int(smtp_profile_id) if smtp_profile_id else None,now()))
+    with conn() as c: c.execute("INSERT INTO campaigns (id,name,status,segment_type,inclusion_criteria,exclusion_criteria,smtp_profile_id,created_at) VALUES (%s,%s,'draft',%s,%s,%s,%s,%s)",(cid,name.strip(),segment_type,Jsonb(inclusion),Jsonb(exclusion),int(smtp_profile_id) if smtp_profile_id else None,now()))
     return RedirectResponse(f"/campaigns/{cid}",303)
 @app.get("/campaigns/{campaign_id}",response_class=HTMLResponse)
 def campaign_detail(campaign_id:str,request:Request):
@@ -100,7 +101,7 @@ def campaign_detail(campaign_id:str,request:Request):
 @app.post("/campaigns/{campaign_id}/edit")
 def edit_campaign(campaign_id:str,request:Request,name:str=Form(),segment_type:str=Form(),inclusion_sector:str=Form(""),exclusion_sector:str=Form(""),inclusion_type:str=Form(""),exclusion_type:str=Form(""),inclusion_size:str=Form(""),exclusion_size:str=Form(""),inclusion_geography:str=Form(""),exclusion_geography:str=Form(""),inclusion_language:str=Form(""),exclusion_language:str=Form(""),smtp_profile_id:str=Form(""),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token); form=locals(); inclusion,exclusion=campaign_payload(form); validate_campaign(name,segment_type,"draft",[],[])
-    with conn() as c: c.execute("UPDATE campaigns SET name=%s,segment_type=%s,inclusion_criteria=%s,exclusion_criteria=%s,smtp_profile_id=%s WHERE id=%s",(name.strip(),segment_type,inclusion,exclusion,int(smtp_profile_id) if smtp_profile_id else None,campaign_id))
+    with conn() as c: c.execute("UPDATE campaigns SET name=%s,segment_type=%s,inclusion_criteria=%s,exclusion_criteria=%s,smtp_profile_id=%s WHERE id=%s",(name.strip(),segment_type,Jsonb(inclusion),Jsonb(exclusion),int(smtp_profile_id) if smtp_profile_id else None,campaign_id))
     return RedirectResponse(f"/campaigns/{campaign_id}",303)
 @app.post("/campaigns/{campaign_id}/status")
 def campaign_status(campaign_id:str,request:Request,status:str=Form(),csrf_token:str|None=Form(None,alias="csrf")):
@@ -112,7 +113,7 @@ def campaign_status(campaign_id:str,request:Request,status:str=Form(),csrf_token
 @app.get("/prospects",response_class=HTMLResponse)
 def prospects(request:Request,campaign_id:str|None=None):
     guard(request)
-    with conn() as c: rows=c.execute("SELECT p.*,c.name AS campaign_name FROM prospects p LEFT JOIN campaigns c ON c.id=p.campaign_id WHERE p.deleted_at IS NULL AND p.status <> 'opposed' AND (%s IS NULL OR p.campaign_id=%s) ORDER BY p.created_at DESC",(campaign_id,campaign_id)).fetchall(); camps=c.execute("SELECT id,name FROM campaigns ORDER BY name").fetchall()
+    with conn() as c: rows=c.execute("SELECT p.*,c.name AS campaign_name FROM prospects p LEFT JOIN campaigns c ON c.id=p.campaign_id WHERE p.deleted_at IS NULL AND p.status <> 'opposed' AND (%s::text IS NULL OR p.campaign_id=%s) ORDER BY p.created_at DESC",(campaign_id,campaign_id)).fetchall(); camps=c.execute("SELECT id,name FROM campaigns ORDER BY name").fetchall()
     def opts(r): return ''.join(f'<option value="{x["id"]}" {"selected" if x["id"]==r["campaign_id"] else ""}>{escape(x["name"])}</option>' for x in camps)
     items=''.join(f'<li>{escape(r["company_name"])} — {escape(r["email"] or "sans email")} — campagne: {escape(r["campaign_name"] or "aucune")} <form style="display:inline" method="post" action="/prospects/{r["id"]}/campaign"><input type="hidden" name="csrf" value="{csrf(request)}"><select name="campaign_id"><option value="">Aucune</option>{opts(r)}</select><button>Associer</button></form></li>' for r in rows)
     return page("Prospects",f'<form method="post"><input name="company_name" required placeholder="Entreprise"><input name="email" placeholder="Email"><input name="provenance" required placeholder="Provenance documentée"><input type="hidden" name="csrf" value="{csrf(request)}"><button>Ajouter</button></form><p>Filtre: <a href="/prospects">toutes</a> | '+" | ".join(f'<a href="/prospects?campaign_id={x["id"]}">{escape(x["name"])}</a>' for x in camps)+f'</p><ul>{items}</ul>',request)
