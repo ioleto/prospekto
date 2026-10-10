@@ -69,13 +69,14 @@ def validate_campaign(name,segment_type,status,inclusion,exclusion):
     if not name.strip() or segment_type not in SEGMENT_TYPES or status not in CAMPAIGN_STATUSES: raise HTTPException(422,"Critères de campagne invalides")
     if set(inclusion)&set(exclusion): raise HTTPException(422,"Une valeur ne peut pas être incluse et exclue")
 def campaign_payload(form):
-    inclusion={k:csv_values(form.get(k)) for k in ("inclusion_sector","inclusion_type","inclusion_size","inclusion_geography","inclusion_language")}; exclusion={k:csv_values(form.get(k)) for k in ("exclusion_sector","exclusion_type","exclusion_size","exclusion_geography","exclusion_language")}
+    criteria=("sector","type","size","geography","language")
+    inclusion={k:csv_values(form.get(f"inclusion_{k}")) for k in criteria}; exclusion={k:csv_values(form.get(f"exclusion_{k}")) for k in criteria}
     for a,b in zip(inclusion.values(),exclusion.values()): validate_campaign("ok","b2b","draft",a,b)
     return inclusion,exclusion
 def campaign_form(request,r=None):
     r=r or {"name":"","segment_type":"b2b","inclusion_criteria":{},"exclusion_criteria":{},"smtp_profile_id":""}
-    for k in ("inclusion_sector","inclusion_type","inclusion_size","inclusion_geography","inclusion_language"): r[k]=r.get("inclusion_criteria",{}).get(k,[])
-    for k in ("exclusion_sector","exclusion_type","exclusion_size","exclusion_geography","exclusion_language"): r[k]=r.get("exclusion_criteria",{}).get(k,[])
+    for k in ("sector","type","size","geography","language"): r[f"inclusion_{k}"]=r.get("inclusion_criteria",{}).get(k,[])
+    for k in ("sector","type","size","geography","language"): r[f"exclusion_{k}"]=r.get("exclusion_criteria",{}).get(k,[])
     def val(k): x=r.get(k,""); return ", ".join(x) if isinstance(x,list) else (x or "")
     opts=''.join(f'<option value="{x}" {"selected" if x==r.get("segment_type") else ""}>{x}</option>' for x in sorted(SEGMENT_TYPES)); fields=''.join(f'<label>{label}<br><input name="{key}" value="{escape(val(key))}" placeholder="valeur1, valeur2"></label><br>' for key,label in [("inclusion_sector","Secteurs inclus"),("exclusion_sector","Secteurs exclus"),("inclusion_type","Types inclus"),("exclusion_type","Types exclus"),("inclusion_size","Tailles incluses"),("exclusion_size","Tailles exclues"),("inclusion_geography","Géographies incluses"),("exclusion_geography","Géographies exclues"),("inclusion_language","Langues incluses"),("exclusion_language","Langues exclues")]); action=f'/campaigns/{r["id"]}/edit' if r.get("id") else '/campaigns'
     return f'<form method="post" action="{action}"><input name="name" required value="{escape(val("name"))}" placeholder="Nom"><select name="segment_type">{opts}</select>{fields}<input name="smtp_profile_id" value="{escape(str(r.get("smtp_profile_id") or ""))}" placeholder="ID profil SMTP (optionnel)"><input type="hidden" name="csrf" value="{csrf(request)}"><button>Enregistrer</button></form>'
@@ -147,5 +148,13 @@ def smtp_profiles(request:Request):
     guard(request)
     with conn() as c: rows=c.execute("SELECT id,name,host,port,username,use_tls FROM smtp_profiles ORDER BY created_at DESC").fetchall()
     items=''.join(f'<li>{escape(r["name"])} — {escape(r["host"])}:{r["port"]} — mot de passe chiffré non affiché</li>' for r in rows); return page("Profils SMTP",f'<p>Les tests et envois SMTP restent désactivés. Aucun réseau sortant n’est contacté.</p><ul>{items}</ul>',request)
+@app.post("/smtp-profiles")
+def create_smtp(request:Request,name:str=Form(),host:str=Form(),port:int=Form(),username:str=Form(),password:str=Form(),use_tls:bool=Form(False),csrf_token:str|None=Form(None,alias="csrf")):
+    guard(request); require_csrf(request,csrf_token)
+    if not (name.strip() and host.strip() and username.strip() and password): raise HTTPException(422,"Champs SMTP obligatoires")
+    try: encrypted=Fernet(os.environ["SMTP_ENCRYPTION_KEY"]).encrypt(password.encode()).decode()
+    except (KeyError,ValueError): raise HTTPException(503,"Clé de chiffrement SMTP invalide ou absente")
+    with conn() as c: c.execute("INSERT INTO smtp_profiles (owner_id,name,host,port,username,password_ciphertext,use_tls,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",(request.session["admin"],name.strip(),host.strip(),port,username.strip(),encrypted,use_tls,now()))
+    return RedirectResponse("/smtp-profiles",303)
 @app.get("/api/status")
 def status(): return {"smtp_enabled":False,"mammouth_enabled":False,"company_connector_enabled":False,"real_sending":False,"uncertain_retry":False,"runtime":"postgresql"}
