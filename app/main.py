@@ -80,13 +80,11 @@ def campaign_form(request,r=None):
     def val(k): x=r.get(k,""); return ", ".join(x) if isinstance(x,list) else (x or "")
     opts=''.join(f'<option value="{x}" {"selected" if x==r.get("segment_type") else ""}>{x}</option>' for x in sorted(SEGMENT_TYPES)); fields=''.join(f'<label>{label}<br><input name="{key}" value="{escape(val(key))}" placeholder="valeur1, valeur2"></label><br>' for key,label in [("inclusion_sector","Secteurs inclus"),("exclusion_sector","Secteurs exclus"),("inclusion_type","Types inclus"),("exclusion_type","Types exclus"),("inclusion_size","Tailles incluses"),("exclusion_size","Tailles exclues"),("inclusion_geography","Géographies incluses"),("exclusion_geography","Géographies exclues"),("inclusion_language","Langues incluses"),("exclusion_language","Langues exclues")]); action=f'/campaigns/{r["id"]}/edit' if r.get("id") else '/campaigns'
     return f'<form method="post" action="{action}"><input name="name" required value="{escape(val("name"))}" placeholder="Nom"><select name="segment_type">{opts}</select>{fields}<input name="smtp_profile_id" value="{escape(str(r.get("smtp_profile_id") or ""))}" placeholder="ID profil SMTP (optionnel)"><input type="hidden" name="csrf" value="{csrf(request)}"><button>Enregistrer</button></form>'
-
 @app.get("/campaigns",response_class=HTMLResponse)
 def campaigns(request:Request):
     guard(request)
     with conn() as c: rows=c.execute("SELECT id,name,status,segment_type FROM campaigns ORDER BY created_at DESC").fetchall()
-    items=''.join(f'<li><a href="/campaigns/{escape(r["id"])}">{escape(r["name"])}</a> — {escape(r["status"])} — {escape(r["segment_type"])}</li>' for r in rows)
-    return page("Campagnes",f'<form method="post"><input name="name" required placeholder="Nom de campagne"><input type="hidden" name="csrf" value="{csrf(request)}"><button>Créer</button></form><ul>{items}</ul>',request)
+    return page("Campagnes",campaign_form(request)+"<ul>"+"".join(f'<li><a href="/campaigns/{r["id"]}">{escape(r["name"])}</a> — {r["status"]}</li>' for r in rows)+"</ul>",request)
 @app.post("/campaigns")
 def create_campaign(request:Request,name:str=Form(),segment_type:str=Form("b2b"),inclusion_sector:str=Form(""),exclusion_sector:str=Form(""),inclusion_type:str=Form(""),exclusion_type:str=Form(""),inclusion_size:str=Form(""),exclusion_size:str=Form(""),inclusion_geography:str=Form(""),exclusion_geography:str=Form(""),inclusion_language:str=Form(""),exclusion_language:str=Form(""),smtp_profile_id:str=Form(""),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token); form=locals(); inclusion,exclusion=campaign_payload(form); validate_campaign(name,segment_type,"draft",[],[]); cid=secrets.token_hex(8)
@@ -95,10 +93,9 @@ def create_campaign(request:Request,name:str=Form(),segment_type:str=Form("b2b")
 @app.get("/campaigns/{campaign_id}",response_class=HTMLResponse)
 def campaign_detail(campaign_id:str,request:Request):
     guard(request)
-    with conn() as c: r=c.execute("SELECT * FROM campaigns WHERE id=%s",(campaign_id,)).fetchone(); n=c.execute("SELECT count(*) AS n FROM prospects WHERE campaign_id=%s AND deleted_at IS NULL",(campaign_id,)).fetchone()["n"]
+    with conn() as c: r=c.execute("SELECT * FROM campaigns WHERE id=%s",(campaign_id,)).fetchone()
     if not r: raise HTTPException(404,"Campagne introuvable")
-    actions=''.join(f'<form method="post" action="/campaigns/{campaign_id}/status"><input type="hidden" name="status" value="{x}"><input type="hidden" name="csrf" value="{csrf(request)}"><button>{x}</button></form>' for x in sorted(CAMPAIGN_STATUSES-{r["status"]}))
-    return page(f"Campagne — {r['name']}",f'<p>Statut: <b>{escape(r["status"])}</b> · Segment: {escape(r["segment_type"])} · {n} prospects associés</p><h2>Modifier les critères</h2>{campaign_form(request,r)}<h2>Statut</h2><div>{actions}</div>',request)
+    return page("Campagne",campaign_form(request,r)+f'<p>Statut: {escape(r["status"])}</p>',request)
 @app.post("/campaigns/{campaign_id}/edit")
 def edit_campaign(campaign_id:str,request:Request,name:str=Form(),segment_type:str=Form(),inclusion_sector:str=Form(""),exclusion_sector:str=Form(""),inclusion_type:str=Form(""),exclusion_type:str=Form(""),inclusion_size:str=Form(""),exclusion_size:str=Form(""),inclusion_geography:str=Form(""),exclusion_geography:str=Form(""),inclusion_language:str=Form(""),exclusion_language:str=Form(""),smtp_profile_id:str=Form(""),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token); form=locals(); inclusion,exclusion=campaign_payload(form); validate_campaign(name,segment_type,"draft",[],[])
@@ -110,7 +107,6 @@ def campaign_status(campaign_id:str,request:Request,status:str=Form(),csrf_token
     if status not in CAMPAIGN_STATUSES: raise HTTPException(422,"Statut invalide")
     with conn() as c: c.execute("UPDATE campaigns SET status=%s WHERE id=%s",(status,campaign_id))
     return RedirectResponse(f"/campaigns/{campaign_id}",303)
-
 @app.get("/prospects",response_class=HTMLResponse)
 def prospects(request:Request,campaign_id:str|None=None):
     guard(request)
@@ -119,18 +115,15 @@ def prospects(request:Request,campaign_id:str|None=None):
     items=''.join(f'<li>{escape(r["company_name"])} — {escape(r["email"] or "sans email")} — campagne: {escape(r["campaign_name"] or "aucune")} <form style="display:inline" method="post" action="/prospects/{r["id"]}/campaign"><input type="hidden" name="csrf" value="{csrf(request)}"><select name="campaign_id"><option value="">Aucune</option>{opts(r)}</select><button>Associer</button></form></li>' for r in rows)
     return page("Prospects",f'<form method="post"><input name="company_name" required placeholder="Entreprise"><input name="email" placeholder="Email"><input name="provenance" required placeholder="Provenance documentée"><input type="hidden" name="csrf" value="{csrf(request)}"><button>Ajouter</button></form><p>Filtre: <a href="/prospects">toutes</a> | '+" | ".join(f'<a href="/prospects?campaign_id={x["id"]}">{escape(x["name"])}</a>' for x in camps)+f'</p><ul>{items}</ul>',request)
 @app.post("/prospects/{prospect_id}/campaign")
-def associate_prospect(prospect_id:str,request:Request,campaign_id:str=Form(""),csrf_token:str|None=Form(None,alias="csrf")):
+def set_prospect_campaign(prospect_id:str,request:Request,campaign_id:str|None=Form(None),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token)
-    with conn() as c:
-        if campaign_id and not c.execute("SELECT id FROM campaigns WHERE id=%s",(campaign_id,)).fetchone(): raise HTTPException(422,"Campagne invalide")
-        c.execute("UPDATE prospects SET campaign_id=%s WHERE id=%s AND deleted_at IS NULL",(campaign_id or None,prospect_id))
+    with conn() as c: c.execute("UPDATE prospects SET campaign_id=%s WHERE id=%s",(campaign_id or None,prospect_id))
     return RedirectResponse("/prospects",303)
-
 @app.post("/prospects")
-def create_prospect(request:Request,company_name:str=Form(),provenance:str=Form(),email:str|None=Form(None),csrf_token:str|None=Form(None,alias="csrf")):
+def create_prospect(request:Request,company_name:str=Form(),email:str=Form(""),provenance:str=Form(),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token)
-    if not provenance.strip(): raise HTTPException(422,"Provenance obligatoire")
-    with conn() as c: c.execute("INSERT INTO prospects (id,company_name,email,provenance,status,created_at) VALUES (%s,%s,%s,%s,%s,%s)",(secrets.token_hex(8),company_name.strip(),email,provenance.strip(),"new",now()))
+    if not company_name.strip() or not provenance.strip(): raise HTTPException(422,"Entreprise et provenance obligatoires")
+    with conn() as c: c.execute("INSERT INTO prospects (id,company_name,email,provenance,status,created_at) VALUES (%s,%s,%s,%s,'new',%s)",(secrets.token_hex(8),company_name.strip(),email.strip() or None,provenance.strip(),now()))
     return RedirectResponse("/prospects",303)
 @app.post("/prospects/{prospect_id}/opposition")
 def oppose(prospect_id:str,request:Request,csrf_token:str|None=Form(None,alias="csrf")):
@@ -147,12 +140,23 @@ def export_prospects(request:Request):
 def smtp_profiles(request:Request):
     guard(request)
     with conn() as c: rows=c.execute("SELECT id,name,host,port,username,use_tls FROM smtp_profiles ORDER BY created_at DESC").fetchall()
-    items=''.join(f'<li>{escape(r["name"])} — {escape(r["host"])}:{r["port"]} — mot de passe chiffré non affiché</li>' for r in rows); return page("Profils SMTP",f'<p>Les tests et envois SMTP restent désactivés. Aucun réseau sortant n’est contacté.</p><ul>{items}</ul>',request)
+    items=''.join(f'<li>{escape(r["name"])} — {escape(r["host"])}:{r["port"]} — mot de passe chiffré non affiché</li>' for r in rows)
+    body=(f'<p>Les tests et envois SMTP restent désactivés. Aucun réseau sortant n’est contacté.</p>'
+          f'<form method="post" action="/smtp-profiles">'
+          f'<input name="name" required placeholder="Nom">'
+          f'<input name="host" required placeholder="smtp.example.org">'
+          f'<input name="port" type="number" min="1" max="65535" value="587" required>'
+          f'<input name="username" required placeholder="Utilisateur">'
+          f'<input name="password" type="password" required placeholder="Mot de passe">'
+          f'<label><input name="use_tls" type="checkbox" value="true" checked> TLS</label>'
+          f'<input type="hidden" name="csrf" value="{csrf(request)}">'
+          f'<button type="submit">Enregistrer le profil</button></form><ul>{items}</ul>')
+    return page("Profils SMTP",body,request)
 @app.post("/smtp-profiles")
-def create_smtp(request:Request,name:str=Form(),host:str=Form(),port:int=Form(),username:str=Form(),password:str=Form(),use_tls:bool=Form(False),csrf_token:str|None=Form(None,alias="csrf")):
+def create_smtp(request:Request,name:str=Form(),host:str=Form(),port:int=Form(587),username:str=Form(),password:str=Form(),use_tls:bool=Form(False),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token)
     if not (name.strip() and host.strip() and username.strip() and password): raise HTTPException(422,"Champs SMTP obligatoires")
-    try: encrypted=Fernet(os.environ["SMTP_ENCRYPTION_KEY"]).encrypt(password.encode()).decode()
+    try: encrypted=Fernet(os.environ["SMTP_ENCRYPTION_KEY"] ).encrypt(password.encode()).decode()
     except (KeyError,ValueError): raise HTTPException(503,"Clé de chiffrement SMTP invalide ou absente")
     with conn() as c: c.execute("INSERT INTO smtp_profiles (owner_id,name,host,port,username,password_ciphertext,use_tls,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",(request.session["admin"],name.strip(),host.strip(),port,username.strip(),encrypted,use_tls,now()))
     return RedirectResponse("/smtp-profiles",303)
