@@ -115,7 +115,7 @@ def prospects(request:Request,campaign_id:str|None=None):
     items=''.join(f'<li>{escape(r["company_name"])} — {escape(r["email"] or "sans email")} — campagne: {escape(r["campaign_name"] or "aucune")} <form style="display:inline" method="post" action="/prospects/{r["id"]}/campaign"><input type="hidden" name="csrf" value="{csrf(request)}"><select name="campaign_id"><option value="">Aucune</option>{opts(r)}</select><button>Associer</button></form></li>' for r in rows)
     return page("Prospects",f'<form method="post"><input name="company_name" required placeholder="Entreprise"><input name="email" placeholder="Email"><input name="provenance" required placeholder="Provenance documentée"><input type="hidden" name="csrf" value="{csrf(request)}"><button>Ajouter</button></form><p>Filtre: <a href="/prospects">toutes</a> | '+" | ".join(f'<a href="/prospects?campaign_id={x["id"]}">{escape(x["name"])}</a>' for x in camps)+f'</p><ul>{items}</ul>',request)
 @app.post("/prospects/{prospect_id}/campaign")
-def set_prospect_campaign(prospect_id:str,request:Request,campaign_id:str|None=Form(None),csrf_token:str|None=Form(None,alias="csrf")):
+def associate_prospect(prospect_id:str,request:Request,campaign_id:str|None=Form(None),csrf_token:str|None=Form(None,alias="csrf")):
     guard(request); require_csrf(request,csrf_token)
     with conn() as c: c.execute("UPDATE prospects SET campaign_id=%s WHERE id=%s",(campaign_id or None,prospect_id))
     return RedirectResponse("/prospects",303)
