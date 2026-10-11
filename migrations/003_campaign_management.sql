@@ -1,0 +1,10 @@
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS segment_type text NOT NULL DEFAULT 'b2b' CHECK (segment_type IN ('b2b','b2c','both'));
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS inclusion_criteria jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS exclusion_criteria jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS smtp_profile_id bigint REFERENCES smtp_profiles(id) ON DELETE SET NULL;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS sector text;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS company_type text;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS company_size text;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS geography text;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS language text;
+CREATE INDEX IF NOT EXISTS idx_prospects_campaign_id ON prospects(campaign_id);
