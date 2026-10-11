@@ -36,6 +36,7 @@ def _campaign_form(**overrides):
 def test_campaign_create_edit_criteria_roundtrip_and_prospect_filter(monkeypatch):
     monkeypatch.setattr(main, "guard", lambda request: None)
     monkeypatch.setattr(main, "require_csrf", lambda request, token: None)
+    monkeypatch.setattr(main, "csrf", lambda request: "csrf")
     campaign_id = "integration-roundtrip-campaign"
     prospect_ids = ("integration-roundtrip-prospect-a", "integration-roundtrip-prospect-b")
 
